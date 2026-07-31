@@ -15,6 +15,7 @@ export default function PainelPage() {
   const [consultorioSelecionado, setConsultorioSelecionado] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [repetindoId, setRepetindoId] = useState<string | null>(null);
 
   const carregarDados = useCallback(async () => {
     const [consultoriosRes, chamadasRes] = await Promise.all([
@@ -96,6 +97,29 @@ export default function PainelPage() {
       }
     } finally {
       setEnviando(false);
+    }
+  }
+
+  async function repetirChamada(chamada: Chamada) {
+    setErro(null);
+    setRepetindoId(chamada.id);
+    try {
+      const res = await fetch("/api/chamadas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paciente: chamada.paciente,
+          consultorioId: chamada.consultorioId,
+        }),
+      });
+      if (res.ok) {
+        await carregarDados();
+      } else {
+        const data = await res.json().catch(() => null);
+        setErro(data?.error ?? "Erro ao repetir chamada");
+      }
+    } finally {
+      setRepetindoId(null);
     }
   }
 
@@ -257,9 +281,18 @@ export default function PainelPage() {
                   <span className="text-zinc-900 dark:text-zinc-50">
                     <strong>{chamada.paciente}</strong> → {chamada.consultorioNome}
                   </span>
-                  <span className="text-zinc-500 dark:text-zinc-400">
-                    {new Date(chamada.criadaEm).toLocaleTimeString("pt-BR")}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-zinc-500 dark:text-zinc-400">
+                      {new Date(chamada.criadaEm).toLocaleTimeString("pt-BR")}
+                    </span>
+                    <button
+                      onClick={() => repetirChamada(chamada)}
+                      disabled={repetindoId === chamada.id}
+                      className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      {repetindoId === chamada.id ? "Repetindo..." : "Repetir"}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
