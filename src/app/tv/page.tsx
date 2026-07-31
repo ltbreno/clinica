@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
-import type { Chamada } from "@/lib/types";
+import type { Chamada, Consultorio } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2500;
 
@@ -24,8 +24,16 @@ function playBeep(audioContext: AudioContext) {
   });
 }
 
+function formatarHora(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function TvPage() {
   const [chamadas, setChamadas] = useState<Chamada[]>([]);
+  const [consultorios, setConsultorios] = useState<Consultorio[]>([]);
   const [somAtivado, setSomAtivado] = useState(false);
   const [destaqueId, setDestaqueId] = useState<string | null>(null);
 
@@ -34,10 +42,19 @@ export default function TvPage() {
   const primeiraCargaRef = useRef(true);
   const destaqueTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const carregarChamadas = useCallback(async () => {
-    const res = await fetch("/api/chamadas");
-    if (!res.ok) return;
-    const data = await res.json();
+  const carregarDados = useCallback(async () => {
+    const [chamadasRes, consultoriosRes] = await Promise.all([
+      fetch("/api/chamadas"),
+      fetch("/api/consultorios"),
+    ]);
+
+    if (consultoriosRes.ok) {
+      const data = await consultoriosRes.json();
+      setConsultorios(data.consultorios ?? []);
+    }
+
+    if (!chamadasRes.ok) return;
+    const data = await chamadasRes.json();
     const lista: Chamada[] = data.chamadas ?? [];
 
     const maisRecente = lista[0];
@@ -60,7 +77,7 @@ export default function TvPage() {
     setChamadas(lista);
   }, []);
 
-  usePolling(carregarChamadas, POLL_INTERVAL_MS);
+  usePolling(carregarDados, POLL_INTERVAL_MS);
 
   function ativarSom() {
     const AudioContextClass =
@@ -72,7 +89,15 @@ export default function TvPage() {
   }
 
   const chamadaAtual = chamadas[0];
-  const historico = chamadas.slice(1, 6);
+
+  const consultoriosOcupados = useMemo(() => {
+    return consultorios
+      .filter((c) => c.status === "ocupado")
+      .map((c) => ({
+        consultorio: c,
+        ultimaChamada: chamadas.find((ch) => ch.consultorioId === c.id) ?? null,
+      }));
+  }, [consultorios, chamadas]);
 
   if (!somAtivado) {
     return (
@@ -112,6 +137,9 @@ export default function TvPage() {
           <span className="text-5xl font-bold text-emerald-400">
             {chamadaAtual.consultorioNome}
           </span>
+          <span className="text-lg font-medium text-zinc-500">
+            Chamado às {formatarHora(chamadaAtual.criadaEm)}
+          </span>
         </div>
       ) : (
         <div className="text-center text-zinc-500">
@@ -119,19 +147,28 @@ export default function TvPage() {
         </div>
       )}
 
-      {historico.length > 0 && (
+      {consultoriosOcupados.length > 0 && (
         <div className="w-full max-w-4xl">
           <h2 className="mb-3 text-sm font-medium uppercase tracking-widest text-zinc-500">
-            Chamadas anteriores
+            Consultórios ocupados
           </h2>
-          <ul className="flex flex-col gap-2">
-            {historico.map((chamada) => (
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {consultoriosOcupados.map(({ consultorio, ultimaChamada }) => (
               <li
-                key={chamada.id}
+                key={consultorio.id}
                 className="flex items-center justify-between rounded-lg bg-zinc-900 px-5 py-3 text-zinc-300"
               >
-                <span>{chamada.paciente}</span>
-                <span className="text-zinc-500">{chamada.consultorioNome}</span>
+                <div className="flex flex-col">
+                  <span className="font-medium text-zinc-100">{consultorio.nome}</span>
+                  <span className="text-sm text-zinc-400">
+                    {ultimaChamada ? ultimaChamada.paciente : "Ocupado"}
+                  </span>
+                </div>
+                {ultimaChamada && (
+                  <span className="text-sm text-zinc-500">
+                    {formatarHora(ultimaChamada.criadaEm)}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
