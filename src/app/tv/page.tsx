@@ -6,22 +6,23 @@ import type { Chamada, Consultorio } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2500;
 
-function playBeep(audioContext: AudioContext) {
-  const now = audioContext.currentTime;
+function escolherVozPtBr(): SpeechSynthesisVoice | undefined {
+  const vozes = window.speechSynthesis.getVoices();
+  return vozes.find((v) => v.lang === "pt-BR") ?? vozes.find((v) => v.lang.startsWith("pt"));
+}
 
-  [0, 0.3].forEach((offset) => {
-    const oscillator = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.value = 880;
-    gain.gain.setValueAtTime(0, now + offset);
-    gain.gain.linearRampToValueAtTime(0.6, now + offset + 0.02);
-    gain.gain.linearRampToValueAtTime(0, now + offset + 0.25);
-    oscillator.connect(gain);
-    gain.connect(audioContext.destination);
-    oscillator.start(now + offset);
-    oscillator.stop(now + offset + 0.25);
-  });
+function falar(texto: string) {
+  if (!("speechSynthesis" in window)) return;
+  const utterance = new SpeechSynthesisUtterance(texto);
+  utterance.lang = "pt-BR";
+  utterance.rate = 0.95;
+  const voz = escolherVozPtBr();
+  if (voz) utterance.voice = voz;
+  window.speechSynthesis.speak(utterance);
+}
+
+function anunciarChamada(chamada: Chamada) {
+  falar(`${chamada.paciente}. ${chamada.consultorioNome}.`);
 }
 
 function formatarHora(timestamp: number): string {
@@ -37,7 +38,6 @@ export default function TvPage() {
   const [somAtivado, setSomAtivado] = useState(false);
   const [destaqueId, setDestaqueId] = useState<string | null>(null);
 
-  const audioContextRef = useRef<AudioContext | null>(null);
   const ultimaChamadaIdRef = useRef<string | null>(null);
   const primeiraCargaRef = useRef(true);
   const destaqueTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,9 +68,7 @@ export default function TvPage() {
         if (destaqueTimeoutRef.current) clearTimeout(destaqueTimeoutRef.current);
         destaqueTimeoutRef.current = setTimeout(() => setDestaqueId(null), 4000);
 
-        if (audioContextRef.current) {
-          playBeep(audioContextRef.current);
-        }
+        anunciarChamada(maisRecente);
       }
     }
 
@@ -80,11 +78,10 @@ export default function TvPage() {
   usePolling(carregarDados, POLL_INTERVAL_MS);
 
   function ativarSom() {
-    const AudioContextClass =
-      window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioContextClass();
-    audioContextRef.current = ctx;
-    playBeep(ctx);
+    // Carrega a lista de vozes do navegador com antecedência e usa o gesto
+    // do toque para desbloquear a síntese de voz (autoplay policy).
+    window.speechSynthesis.getVoices();
+    falar("Som ativado.");
     setSomAtivado(true);
   }
 
@@ -99,12 +96,14 @@ export default function TvPage() {
       }));
   }, [consultorios, chamadas]);
 
+  const historico = useMemo(() => chamadas.slice(1, 9), [chamadas]);
+
   if (!somAtivado) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-950 p-8 text-center">
         <h1 className="text-3xl font-bold text-white">Painel de Chamadas</h1>
         <p className="max-w-md text-zinc-400">
-          Toque no botão abaixo para ativar o som de chamada nesta TV.
+          Toque no botão abaixo para ativar a locução de voz nesta TV.
         </p>
         <button
           onClick={ativarSom}
@@ -117,7 +116,7 @@ export default function TvPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-10 bg-zinc-950 p-8">
+    <div className="flex min-h-screen flex-col items-center gap-10 bg-zinc-950 p-8 py-12">
       {chamadaAtual ? (
         <div
           key={chamadaAtual.id}
@@ -147,33 +146,57 @@ export default function TvPage() {
         </div>
       )}
 
-      {consultoriosOcupados.length > 0 && (
-        <div className="w-full max-w-4xl">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-widest text-zinc-500">
-            Consultórios ocupados
-          </h2>
-          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {consultoriosOcupados.map(({ consultorio, ultimaChamada }) => (
-              <li
-                key={consultorio.id}
-                className="flex items-center justify-between rounded-lg bg-zinc-900 px-5 py-3 text-zinc-300"
-              >
-                <div className="flex flex-col">
-                  <span className="font-medium text-zinc-100">{consultorio.nome}</span>
-                  <span className="text-sm text-zinc-400">
-                    {ultimaChamada ? ultimaChamada.paciente : "Ocupado"}
+      <div className="grid w-full max-w-5xl grid-cols-1 gap-8 md:grid-cols-2">
+        {consultoriosOcupados.length > 0 && (
+          <div>
+            <h2 className="mb-3 text-sm font-medium uppercase tracking-widest text-zinc-500">
+              Consultórios ocupados
+            </h2>
+            <ul className="flex flex-col gap-2">
+              {consultoriosOcupados.map(({ consultorio, ultimaChamada }) => (
+                <li
+                  key={consultorio.id}
+                  className="flex items-center justify-between rounded-lg bg-zinc-900 px-5 py-3 text-zinc-300"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium text-zinc-100">{consultorio.nome}</span>
+                    <span className="text-sm text-zinc-400">
+                      {ultimaChamada ? ultimaChamada.paciente : "Ocupado"}
+                    </span>
+                  </div>
+                  {ultimaChamada && (
+                    <span className="text-sm text-zinc-500">
+                      {formatarHora(ultimaChamada.criadaEm)}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {historico.length > 0 && (
+          <div>
+            <h2 className="mb-3 text-sm font-medium uppercase tracking-widest text-zinc-500">
+              Histórico de chamadas
+            </h2>
+            <ul className="flex flex-col gap-2">
+              {historico.map((chamada) => (
+                <li
+                  key={chamada.id}
+                  className="flex items-center justify-between rounded-lg bg-zinc-900/60 px-5 py-2.5 text-zinc-400"
+                >
+                  <span>
+                    {chamada.paciente} <span className="text-zinc-600">·</span>{" "}
+                    {chamada.consultorioNome}
                   </span>
-                </div>
-                {ultimaChamada && (
-                  <span className="text-sm text-zinc-500">
-                    {formatarHora(ultimaChamada.criadaEm)}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+                  <span className="text-sm text-zinc-600">{formatarHora(chamada.criadaEm)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
