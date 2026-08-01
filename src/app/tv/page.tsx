@@ -6,18 +6,17 @@ import type { Chamada, Consultorio } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2500;
 
-function escolherVozPtBr(): SpeechSynthesisVoice | undefined {
-  const vozes = window.speechSynthesis.getVoices();
-  return vozes.find((v) => v.lang === "pt-BR") ?? vozes.find((v) => v.lang.startsWith("pt"));
-}
-
 function falar(texto: string) {
   if (!("speechSynthesis" in window)) return;
+  // Cancela qualquer fala pendente/travada antes de anunciar a próxima —
+  // evita que a fila trave silenciosamente depois da primeira chamada.
+  window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(texto);
   utterance.lang = "pt-BR";
   utterance.rate = 0.95;
-  const voz = escolherVozPtBr();
-  if (voz) utterance.voice = voz;
+  // Não força uma voz específica: em várias TVs/navegadores, forçar uma
+  // voz pt-BR obtida via getVoices() falha silenciosamente (sem erro, sem
+  // som), enquanto a voz padrão do dispositivo funciona normalmente.
   window.speechSynthesis.speak(utterance);
 }
 
@@ -78,9 +77,7 @@ export default function TvPage() {
   usePolling(carregarDados, POLL_INTERVAL_MS);
 
   function ativarSom() {
-    // Carrega a lista de vozes do navegador com antecedência e usa o gesto
-    // do toque para desbloquear a síntese de voz (autoplay policy).
-    window.speechSynthesis.getVoices();
+    // Usa o gesto do toque para desbloquear a síntese de voz (autoplay policy).
     falar("Som ativado.");
     setSomAtivado(true);
   }
