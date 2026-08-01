@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import QRCode from "qrcode";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import type { Chamada, Consultorio } from "@/lib/types";
 
@@ -16,6 +17,28 @@ export default function PainelPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [repetindoId, setRepetindoId] = useState<string | null>(null);
+  const [tvUrl, setTvUrl] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [linkCopiado, setLinkCopiado] = useState(false);
+
+  useEffect(() => {
+    const url = `${window.location.origin}/tv`;
+    QRCode.toDataURL(url, { width: 220, margin: 1 })
+      .then((dataUrl) => {
+        setTvUrl(url);
+        setQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        setTvUrl(url);
+        setQrDataUrl("");
+      });
+  }, []);
+
+  async function copiarLinkTv() {
+    await navigator.clipboard.writeText(tvUrl);
+    setLinkCopiado(true);
+    setTimeout(() => setLinkCopiado(false), 2000);
+  }
 
   const carregarDados = useCallback(async () => {
     const [consultoriosRes, chamadasRes] = await Promise.all([
@@ -151,6 +174,39 @@ export default function PainelPage() {
             {erro}
           </div>
         )}
+
+        <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-2 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+            Conectar a TV
+          </h2>
+          <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+            Abra este link no navegador da Smart TV (digite uma vez e salve como favorito/página
+            inicial), ou escaneie o QR code com o celular e use a opção de enviar/abrir link no
+            app de controle remoto da TV.
+          </p>
+          <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+            {qrDataUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={qrDataUrl}
+                alt="QR code para abrir a tela da TV"
+                className="h-40 w-40 rounded-md border border-zinc-200 dark:border-zinc-700"
+              />
+            )}
+            <div className="flex flex-1 flex-col gap-2">
+              <code className="break-all rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                {tvUrl}
+              </code>
+              <button
+                onClick={copiarLinkTv}
+                disabled={!tvUrl}
+                className="w-fit rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                {linkCopiado ? "Copiado!" : "Copiar link"}
+              </button>
+            </div>
+          </div>
+        </section>
 
         <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
