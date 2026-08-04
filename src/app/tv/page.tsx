@@ -1,10 +1,28 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import type { Chamada, Consultorio } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2500;
+
+function playBeep(audioContext: AudioContext) {
+  const now = audioContext.currentTime;
+
+  [0, 0.3].forEach((offset) => {
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0, now + offset);
+    gain.gain.linearRampToValueAtTime(0.6, now + offset + 0.02);
+    gain.gain.linearRampToValueAtTime(0, now + offset + 0.25);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(now + offset);
+    oscillator.stop(now + offset + 0.25);
+  });
+}
 
 function falar(texto: string) {
   if (!("speechSynthesis" in window)) return;
@@ -20,7 +38,12 @@ function falar(texto: string) {
   window.speechSynthesis.speak(utterance);
 }
 
-function anunciarChamada(chamada: Chamada) {
+// Toca o bipe (funciona em praticamente qualquer navegador via Web Audio)
+// e, além disso, tenta anunciar por voz — em TVs sem motor de TTS instalado
+// no sistema, a fala simplesmente não sai som nenhum, então o bipe garante
+// que sempre haja um alerta audível.
+function anunciarChamada(chamada: Chamada, audioContext: AudioContext | null) {
+  if (audioContext) playBeep(audioContext);
   falar(`${chamada.paciente}. ${chamada.consultorioNome}.`);
 }
 
@@ -37,6 +60,7 @@ export default function TvPage() {
   const [somAtivado, setSomAtivado] = useState(false);
   const [destaqueId, setDestaqueId] = useState<string | null>(null);
 
+  const audioContextRef = useRef<AudioContext | null>(null);
   const ultimaChamadaIdRef = useRef<string | null>(null);
   const primeiraCargaRef = useRef(true);
   const destaqueTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -67,7 +91,7 @@ export default function TvPage() {
         if (destaqueTimeoutRef.current) clearTimeout(destaqueTimeoutRef.current);
         destaqueTimeoutRef.current = setTimeout(() => setDestaqueId(null), 4000);
 
-        anunciarChamada(maisRecente);
+        anunciarChamada(maisRecente, audioContextRef.current);
       }
     }
 
@@ -77,10 +101,34 @@ export default function TvPage() {
   usePolling(carregarDados, POLL_INTERVAL_MS);
 
   function ativarSom() {
-    // Usa o gesto do toque para desbloquear a síntese de voz (autoplay policy).
+    // Cria o AudioContext dentro do gesto do toque para desbloquear tanto
+    // o bipe (Web Audio) quanto a síntese de voz (autoplay policy).
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioContextClass();
+    audioContextRef.current = ctx;
+    playBeep(ctx);
     falar("Som ativado.");
     setSomAtivado(true);
   }
+
+  const [vozesDisponiveis, setVozesDisponiveis] = useState(0);
+  const [ttsSuportado, setTtsSuportado] = useState(true);
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) {
+      Promise.resolve().then(() => setTtsSuportado(false));
+      return;
+    }
+    const atualizar = () => {
+      const vozes = window.speechSynthesis.getVoices();
+      Promise.resolve().then(() => setVozesDisponiveis(vozes.length));
+    };
+    atualizar();
+    window.speechSynthesis.addEventListener("voiceschanged", atualizar);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", atualizar);
+  }, []);
 
   const chamadaAtual = chamadas[0];
 
@@ -108,6 +156,9 @@ export default function TvPage() {
         >
           Ativar som
         </button>
+        <p className="text-xs text-zinc-700">
+          Voz: {ttsSuportado ? `${vozesDisponiveis} voz(es) disponível(is)` : "não suportada neste navegador"}
+        </p>
       </div>
     );
   }
@@ -194,6 +245,10 @@ export default function TvPage() {
           </div>
         )}
       </div>
+
+      <p className="mt-auto text-xs text-zinc-700">
+        Voz: {ttsSuportado ? `${vozesDisponiveis} voz(es) disponível(is)` : "não suportada neste navegador"}
+      </p>
     </div>
   );
 }
