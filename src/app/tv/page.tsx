@@ -1,10 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import type { Chamada, Consultorio } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2500;
+
+// WAV silencioso de 1 amostra, usado só para desbloquear a reprodução de
+// elementos <audio> dentro do gesto de toque (autoplay policy).
+const AUDIO_SILENCIOSO =
+  "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 
 function playBeep(audioContext: AudioContext) {
   const now = audioContext.currentTime;
@@ -24,27 +29,14 @@ function playBeep(audioContext: AudioContext) {
   });
 }
 
-function falar(texto: string) {
-  if (!("speechSynthesis" in window)) return;
-  // Cancela qualquer fala pendente/travada antes de anunciar a próxima —
-  // evita que a fila trave silenciosamente depois da primeira chamada.
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(texto);
-  utterance.lang = "pt-BR";
-  utterance.rate = 0.95;
-  // Não força uma voz específica: em várias TVs/navegadores, forçar uma
-  // voz pt-BR obtida via getVoices() falha silenciosamente (sem erro, sem
-  // som), enquanto a voz padrão do dispositivo funciona normalmente.
-  window.speechSynthesis.speak(utterance);
-}
-
-// Toca o bipe (funciona em praticamente qualquer navegador via Web Audio)
-// e, além disso, tenta anunciar por voz — em TVs sem motor de TTS instalado
-// no sistema, a fala simplesmente não sai som nenhum, então o bipe garante
-// que sempre haja um alerta audível.
-function anunciarChamada(chamada: Chamada, audioContext: AudioContext | null) {
-  if (audioContext) playBeep(audioContext);
-  falar(`${chamada.paciente}. ${chamada.consultorioNome}.`);
+// Toca a locução já sintetizada no servidor (Google Cloud TTS) como um
+// arquivo de áudio comum — não depende de motor de voz local na TV.
+function tocarLocucao(chamada: Chamada): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(`/api/chamadas/${chamada.id}/audio`);
+    audio.addEventListener("error", () => reject(new Error("falha ao carregar áudio")));
+    audio.play().then(resolve).catch(reject);
+  });
 }
 
 function formatarHora(timestamp: number): string {
@@ -59,6 +51,7 @@ export default function TvPage() {
   const [consultorios, setConsultorios] = useState<Consultorio[]>([]);
   const [somAtivado, setSomAtivado] = useState(false);
   const [destaqueId, setDestaqueId] = useState<string | null>(null);
+  const [statusAudio, setStatusAudio] = useState("aguardando primeira chamada");
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const ultimaChamadaIdRef = useRef<string | null>(null);
@@ -91,7 +84,14 @@ export default function TvPage() {
         if (destaqueTimeoutRef.current) clearTimeout(destaqueTimeoutRef.current);
         destaqueTimeoutRef.current = setTimeout(() => setDestaqueId(null), 4000);
 
-        anunciarChamada(maisRecente, audioContextRef.current);
+        // O bipe (Web Audio) não depende de nenhum serviço externo e funciona
+        // em praticamente qualquer navegador — toca sempre, como garantia.
+        if (audioContextRef.current) playBeep(audioContextRef.current);
+
+        tocarLocucao(maisRecente).then(
+          () => setStatusAudio("locução tocada com sucesso"),
+          (erro) => setStatusAudio(`erro na locução: ${erro instanceof Error ? erro.message : erro}`)
+        );
       }
     }
 
@@ -101,34 +101,19 @@ export default function TvPage() {
   usePolling(carregarDados, POLL_INTERVAL_MS);
 
   function ativarSom() {
-    // Cria o AudioContext dentro do gesto do toque para desbloquear tanto
-    // o bipe (Web Audio) quanto a síntese de voz (autoplay policy).
+    // Cria o AudioContext dentro do gesto do toque para desbloquear o bipe.
     const AudioContextClass =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new AudioContextClass();
     audioContextRef.current = ctx;
     playBeep(ctx);
-    falar("Som ativado.");
+
+    // Desbloqueia elementos <audio> (reprodução da locução) no mesmo gesto.
+    new Audio(AUDIO_SILENCIOSO).play().catch(() => {});
+
     setSomAtivado(true);
   }
-
-  const [vozesDisponiveis, setVozesDisponiveis] = useState(0);
-  const [ttsSuportado, setTtsSuportado] = useState(true);
-
-  useEffect(() => {
-    if (!("speechSynthesis" in window)) {
-      Promise.resolve().then(() => setTtsSuportado(false));
-      return;
-    }
-    const atualizar = () => {
-      const vozes = window.speechSynthesis.getVoices();
-      Promise.resolve().then(() => setVozesDisponiveis(vozes.length));
-    };
-    atualizar();
-    window.speechSynthesis.addEventListener("voiceschanged", atualizar);
-    return () => window.speechSynthesis.removeEventListener("voiceschanged", atualizar);
-  }, []);
 
   const chamadaAtual = chamadas[0];
 
@@ -148,7 +133,7 @@ export default function TvPage() {
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-950 p-8 text-center">
         <h1 className="text-3xl font-bold text-white">Painel de Chamadas</h1>
         <p className="max-w-md text-zinc-400">
-          Toque no botão abaixo para ativar a locução de voz nesta TV.
+          Toque no botão abaixo para ativar o som de chamada nesta TV.
         </p>
         <button
           onClick={ativarSom}
@@ -156,9 +141,6 @@ export default function TvPage() {
         >
           Ativar som
         </button>
-        <p className="text-xs text-zinc-700">
-          Voz: {ttsSuportado ? `${vozesDisponiveis} voz(es) disponível(is)` : "não suportada neste navegador"}
-        </p>
       </div>
     );
   }
@@ -246,9 +228,7 @@ export default function TvPage() {
         )}
       </div>
 
-      <p className="mt-auto text-xs text-zinc-700">
-        Voz: {ttsSuportado ? `${vozesDisponiveis} voz(es) disponível(is)` : "não suportada neste navegador"}
-      </p>
+      <p className="mt-auto text-xs text-zinc-700">Áudio: {statusAudio}</p>
     </div>
   );
 }
