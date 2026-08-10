@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import type { Chamada, Consultorio } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2500;
 
 // WAV silencioso de 1 amostra, usado só para desbloquear a reprodução de
-// elementos <audio> dentro do gesto de toque (autoplay policy).
+// elementos <audio> caso o navegador exija algum gesto do usuário.
 const AUDIO_SILENCIOSO =
   "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 
@@ -49,14 +49,43 @@ function formatarHora(timestamp: number): string {
 export default function TvPage() {
   const [chamadas, setChamadas] = useState<Chamada[]>([]);
   const [consultorios, setConsultorios] = useState<Consultorio[]>([]);
-  const [somAtivado, setSomAtivado] = useState(false);
   const [destaqueId, setDestaqueId] = useState<string | null>(null);
   const [statusAudio, setStatusAudio] = useState("aguardando primeira chamada");
+  const [estadoAudioContext, setEstadoAudioContext] = useState("não iniciado");
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const ultimaChamadaIdRef = useRef<string | null>(null);
   const primeiraCargaRef = useRef(true);
   const destaqueTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // A TV pode não ter mouse/controle capaz de clicar num botão na tela, então
+  // não há um gesto explícito de "ativar som" para o usuário disparar. Em vez
+  // disso: cria o AudioContext direto ao carregar (funciona sem gesto em
+  // navegadores que não aplicam a autoplay policy — comum em TVs antigas) e,
+  // como plano B, tenta desbloquear em qualquer interação que eventualmente
+  // aconteça (clique, tecla do controle, toque).
+  useEffect(() => {
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioContextClass();
+    audioContextRef.current = ctx;
+    Promise.resolve().then(() => setEstadoAudioContext(ctx.state));
+
+    const desbloquear = () => {
+      ctx.resume().then(() => setEstadoAudioContext(ctx.state));
+      new Audio(AUDIO_SILENCIOSO).play().catch(() => {});
+    };
+    document.addEventListener("click", desbloquear);
+    document.addEventListener("keydown", desbloquear);
+    document.addEventListener("touchstart", desbloquear);
+
+    return () => {
+      document.removeEventListener("click", desbloquear);
+      document.removeEventListener("keydown", desbloquear);
+      document.removeEventListener("touchstart", desbloquear);
+    };
+  }, []);
 
   const carregarDados = useCallback(async () => {
     const [chamadasRes, consultoriosRes] = await Promise.all([
@@ -84,9 +113,10 @@ export default function TvPage() {
         if (destaqueTimeoutRef.current) clearTimeout(destaqueTimeoutRef.current);
         destaqueTimeoutRef.current = setTimeout(() => setDestaqueId(null), 4000);
 
-        // O bipe (Web Audio) não depende de nenhum serviço externo e funciona
-        // em praticamente qualquer navegador — toca sempre, como garantia.
-        if (audioContextRef.current) playBeep(audioContextRef.current);
+        const ctx = audioContextRef.current;
+        if (ctx) {
+          ctx.resume().finally(() => playBeep(ctx));
+        }
 
         tocarLocucao(maisRecente).then(
           () => setStatusAudio("locução tocada com sucesso"),
@@ -100,21 +130,6 @@ export default function TvPage() {
 
   usePolling(carregarDados, POLL_INTERVAL_MS);
 
-  function ativarSom() {
-    // Cria o AudioContext dentro do gesto do toque para desbloquear o bipe.
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioContextClass();
-    audioContextRef.current = ctx;
-    playBeep(ctx);
-
-    // Desbloqueia elementos <audio> (reprodução da locução) no mesmo gesto.
-    new Audio(AUDIO_SILENCIOSO).play().catch(() => {});
-
-    setSomAtivado(true);
-  }
-
   const chamadaAtual = chamadas[0];
 
   const consultoriosOcupados = useMemo(() => {
@@ -127,23 +142,6 @@ export default function TvPage() {
   }, [consultorios, chamadas]);
 
   const historico = useMemo(() => chamadas.slice(1, 9), [chamadas]);
-
-  if (!somAtivado) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-950 p-8 text-center">
-        <h1 className="text-3xl font-bold text-white">Painel de Chamadas</h1>
-        <p className="max-w-md text-zinc-400">
-          Toque no botão abaixo para ativar o som de chamada nesta TV.
-        </p>
-        <button
-          onClick={ativarSom}
-          className="rounded-lg bg-white px-8 py-4 text-xl font-semibold text-zinc-900 hover:bg-zinc-200"
-        >
-          Ativar som
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen flex-col items-center gap-10 bg-zinc-950 p-8 py-12">
@@ -228,7 +226,9 @@ export default function TvPage() {
         )}
       </div>
 
-      <p className="mt-auto text-xs text-zinc-700">Áudio: {statusAudio}</p>
+      <p className="mt-auto text-xs text-zinc-700">
+        Contexto de áudio: {estadoAudioContext} · Áudio: {statusAudio}
+      </p>
     </div>
   );
 }
