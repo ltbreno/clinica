@@ -3,7 +3,10 @@ import { criarChamada, getChamadas } from "@/lib/store";
 
 export async function GET() {
   const chamadas = await getChamadas();
-  return NextResponse.json({ chamadas });
+  return NextResponse.json(
+    { chamadas },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 export async function POST(request: NextRequest) {

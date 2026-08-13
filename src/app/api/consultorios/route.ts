@@ -3,7 +3,10 @@ import { addConsultorio, getConsultorios } from "@/lib/store";
 
 export async function GET() {
   const consultorios = await getConsultorios();
-  return NextResponse.json({ consultorios });
+  return NextResponse.json(
+    { consultorios },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 export async function POST(request: NextRequest) {
