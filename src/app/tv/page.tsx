@@ -1,5 +1,9 @@
 "use client";
 
+// TVs antigas podem não ter window.fetch nativo (API de ~2015-2017). Este
+// polyfill só entra em ação quando fetch não existe — não afeta navegadores
+// modernos nem o build/SSR (Node já tem fetch nativo).
+import "whatwg-fetch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import type { Chamada, Consultorio } from "@/lib/types";
@@ -52,6 +56,7 @@ export default function TvPage() {
   const [destaqueId, setDestaqueId] = useState<string | null>(null);
   const [statusAudio, setStatusAudio] = useState("aguardando primeira chamada");
   const [estadoAudioContext, setEstadoAudioContext] = useState("não iniciado");
+  const [erroCarregamento, setErroCarregamento] = useState<string | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const ultimaChamadaIdRef = useRef<string | null>(null);
@@ -88,44 +93,52 @@ export default function TvPage() {
   }, []);
 
   const carregarDados = useCallback(async () => {
-    const [chamadasRes, consultoriosRes] = await Promise.all([
-      fetch("/api/chamadas"),
-      fetch("/api/consultorios"),
-    ]);
+    try {
+      const [chamadasRes, consultoriosRes] = await Promise.all([
+        fetch("/api/chamadas"),
+        fetch("/api/consultorios"),
+      ]);
 
-    if (consultoriosRes.ok) {
-      const data = await consultoriosRes.json();
-      setConsultorios(data.consultorios ?? []);
-    }
-
-    if (!chamadasRes.ok) return;
-    const data = await chamadasRes.json();
-    const lista: Chamada[] = data.chamadas ?? [];
-
-    const maisRecente = lista[0];
-    const isPrimeiraCarga = primeiraCargaRef.current;
-    primeiraCargaRef.current = false;
-
-    if (maisRecente && maisRecente.id !== ultimaChamadaIdRef.current) {
-      ultimaChamadaIdRef.current = maisRecente.id;
-      if (!isPrimeiraCarga) {
-        setDestaqueId(maisRecente.id);
-        if (destaqueTimeoutRef.current) clearTimeout(destaqueTimeoutRef.current);
-        destaqueTimeoutRef.current = setTimeout(() => setDestaqueId(null), 4000);
-
-        const ctx = audioContextRef.current;
-        if (ctx) {
-          ctx.resume().finally(() => playBeep(ctx));
-        }
-
-        tocarLocucao(maisRecente).then(
-          () => setStatusAudio("locução tocada com sucesso"),
-          (erro) => setStatusAudio(`erro na locução: ${erro instanceof Error ? erro.message : erro}`)
-        );
+      if (consultoriosRes.ok) {
+        const data = await consultoriosRes.json();
+        setConsultorios(data.consultorios ?? []);
       }
-    }
 
-    setChamadas(lista);
+      if (!chamadasRes.ok) {
+        setErroCarregamento(`/api/chamadas retornou ${chamadasRes.status}`);
+        return;
+      }
+      const data = await chamadasRes.json();
+      const lista: Chamada[] = data.chamadas ?? [];
+
+      const maisRecente = lista[0];
+      const isPrimeiraCarga = primeiraCargaRef.current;
+      primeiraCargaRef.current = false;
+
+      if (maisRecente && maisRecente.id !== ultimaChamadaIdRef.current) {
+        ultimaChamadaIdRef.current = maisRecente.id;
+        if (!isPrimeiraCarga) {
+          setDestaqueId(maisRecente.id);
+          if (destaqueTimeoutRef.current) clearTimeout(destaqueTimeoutRef.current);
+          destaqueTimeoutRef.current = setTimeout(() => setDestaqueId(null), 4000);
+
+          const ctx = audioContextRef.current;
+          if (ctx) {
+            ctx.resume().finally(() => playBeep(ctx));
+          }
+
+          tocarLocucao(maisRecente).then(
+            () => setStatusAudio("locução tocada com sucesso"),
+            (erro) => setStatusAudio(`erro na locução: ${erro instanceof Error ? erro.message : erro}`)
+          );
+        }
+      }
+
+      setChamadas(lista);
+      setErroCarregamento(null);
+    } catch (erro) {
+      setErroCarregamento(erro instanceof Error ? erro.message : String(erro));
+    }
   }, []);
 
   usePolling(carregarDados, POLL_INTERVAL_MS);
@@ -228,6 +241,7 @@ export default function TvPage() {
 
       <p className="mt-auto text-xs text-zinc-700">
         Contexto de áudio: {estadoAudioContext} · Áudio: {statusAudio}
+        {erroCarregamento && <> · Erro ao buscar dados: {erroCarregamento}</>}
       </p>
     </div>
   );
