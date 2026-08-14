@@ -1,8 +1,9 @@
 const GOOGLE_TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
 const ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech";
-// Voz padrão pública da ElevenLabs ("Rachel"), compatível com o modelo
-// multilíngue — pode ser trocada via ELEVENLABS_VOICE_ID sem mudar código.
-const ELEVENLABS_VOICE_ID_PADRAO = "21m00Tcm4TlvDq8ikWAM";
+// Voz pré-instalada ("Sarah") disponível em qualquer conta gratuita da
+// ElevenLabs — pode ser trocada via ELEVENLABS_VOICE_ID sem mudar código.
+// Vozes como "Rachel" não ficam mais disponíveis via API no plano grátis.
+const ELEVENLABS_VOICE_ID_PADRAO = "EXAVITQu4vr4xnSDxMaL";
 
 async function sintetizarVozElevenLabs(texto: string): Promise<Buffer> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
