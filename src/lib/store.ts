@@ -50,7 +50,11 @@ export async function getChamadas(): Promise<Chamada[]> {
   return list ?? [];
 }
 
-export async function criarChamada(paciente: string, consultorioId: string): Promise<Chamada> {
+export async function criarChamada(
+  paciente: string,
+  consultorioId: string,
+  prioridade = false
+): Promise<Chamada> {
   const consultorios = await getConsultorios();
   const consultorio = consultorios.find((c) => c.id === consultorioId);
   if (!consultorio) {
@@ -63,6 +67,7 @@ export async function criarChamada(paciente: string, consultorioId: string): Pro
     consultorioId,
     consultorioNome: consultorio.nome,
     criadaEm: Date.now(),
+    prioridade,
   };
 
   const chamadas = await getChamadas();

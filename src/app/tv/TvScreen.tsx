@@ -33,6 +33,28 @@ function playBeep(audioContext: AudioContext) {
   });
 }
 
+// Som de alerta bem diferente do bipe normal (timbre "square", 4 tons
+// alternando agudo/grave, mais rápido) para chamar atenção de imediato.
+function playBeepPrioritario(audioContext: AudioContext) {
+  const now = audioContext.currentTime;
+  const frequencias = [1046, 784, 1046, 784];
+
+  frequencias.forEach((frequencia, i) => {
+    const offset = i * 0.22;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = "square";
+    oscillator.frequency.value = frequencia;
+    gain.gain.setValueAtTime(0, now + offset);
+    gain.gain.linearRampToValueAtTime(0.45, now + offset + 0.02);
+    gain.gain.linearRampToValueAtTime(0, now + offset + 0.18);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(now + offset);
+    oscillator.stop(now + offset + 0.18);
+  });
+}
+
 // Toca a locução já sintetizada no servidor (Google Cloud TTS) como um
 // arquivo de áudio comum — não depende de motor de voz local na TV.
 function tocarLocucao(chamada: Chamada): Promise<void> {
@@ -128,7 +150,9 @@ export default function TvScreen() {
 
           const ctx = audioContextRef.current;
           if (ctx) {
-            ctx.resume().finally(() => playBeep(ctx));
+            ctx.resume().finally(() =>
+              maisRecente.prioridade ? playBeepPrioritario(ctx) : playBeep(ctx)
+            );
           }
 
           tocarLocucao(maisRecente).then(
@@ -166,11 +190,18 @@ export default function TvScreen() {
         <div
           key={chamadaAtual.id}
           className={`flex w-full max-w-4xl flex-col items-center gap-4 rounded-3xl border-4 p-16 text-center transition-colors ${
-            destaqueId === chamadaAtual.id
-              ? "border-emerald-400 bg-emerald-950/40 animate-pulse"
-              : "border-zinc-800 bg-zinc-900"
+            chamadaAtual.prioridade
+              ? `border-red-500 bg-red-950/40 ${destaqueId === chamadaAtual.id ? "animate-pulse" : ""}`
+              : destaqueId === chamadaAtual.id
+                ? "border-emerald-400 bg-emerald-950/40 animate-pulse"
+                : "border-zinc-800 bg-zinc-900"
           }`}
         >
+          {chamadaAtual.prioridade && (
+            <span className="rounded-full bg-red-600 px-4 py-1 text-lg font-bold uppercase tracking-widest text-white">
+              Prioritário
+            </span>
+          )}
           <span className="text-2xl font-medium uppercase tracking-widest text-zinc-400">
             Paciente
           </span>
@@ -178,7 +209,9 @@ export default function TvScreen() {
           <span className="text-2xl font-medium uppercase tracking-widest text-zinc-400">
             Dirija-se ao
           </span>
-          <span className="text-5xl font-bold text-emerald-400">
+          <span
+            className={`text-5xl font-bold ${chamadaAtual.prioridade ? "text-red-400" : "text-emerald-400"}`}
+          >
             {chamadaAtual.consultorioNome}
           </span>
           <span className="text-lg font-medium text-zinc-500">
@@ -201,10 +234,21 @@ export default function TvScreen() {
               {consultoriosOcupados.map(({ consultorio, ultimaChamada }) => (
                 <li
                   key={consultorio.id}
-                  className="flex items-center justify-between rounded-lg bg-zinc-900 px-5 py-3 text-zinc-300"
+                  className={`flex items-center justify-between rounded-lg px-5 py-3 ${
+                    ultimaChamada?.prioridade
+                      ? "border border-red-500 bg-red-950/40 text-red-100"
+                      : "bg-zinc-900 text-zinc-300"
+                  }`}
                 >
                   <div className="flex flex-col">
-                    <span className="font-medium text-zinc-100">{consultorio.nome}</span>
+                    <span className="font-medium text-zinc-100">
+                      {ultimaChamada?.prioridade && (
+                        <span className="mr-2 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                          Prioritário
+                        </span>
+                      )}
+                      {consultorio.nome}
+                    </span>
                     <span className="text-sm text-zinc-400">
                       {ultimaChamada ? ultimaChamada.paciente : "Ocupado"}
                     </span>
@@ -229,9 +273,18 @@ export default function TvScreen() {
               {historico.map((chamada) => (
                 <li
                   key={chamada.id}
-                  className="flex items-center justify-between rounded-lg bg-zinc-900/60 px-5 py-2.5 text-zinc-400"
+                  className={`flex items-center justify-between rounded-lg px-5 py-2.5 ${
+                    chamada.prioridade
+                      ? "border border-red-500/60 bg-red-950/30 text-red-200"
+                      : "bg-zinc-900/60 text-zinc-400"
+                  }`}
                 >
                   <span>
+                    {chamada.prioridade && (
+                      <span className="mr-2 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                        Prioritário
+                      </span>
+                    )}
                     {chamada.paciente} <span className="text-zinc-600">·</span>{" "}
                     {chamada.consultorioNome}
                   </span>

@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const paciente = typeof body?.paciente === "string" ? body.paciente.trim() : "";
   const consultorioId = typeof body?.consultorioId === "string" ? body.consultorioId : "";
+  const prioridade = body?.prioridade === true;
 
   if (!paciente || !consultorioId) {
     return NextResponse.json(
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const chamada = await criarChamada(paciente, consultorioId);
+    const chamada = await criarChamada(paciente, consultorioId, prioridade);
     return NextResponse.json({ chamada }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao criar chamada";

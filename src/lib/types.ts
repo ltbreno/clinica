@@ -12,4 +12,5 @@ export interface Chamada {
   consultorioId: string;
   consultorioNome: string;
   criadaEm: number;
+  prioridade: boolean;
 }

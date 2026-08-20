@@ -13,6 +13,7 @@ export default function PainelPage() {
   const [novoConsultorio, setNovoConsultorio] = useState("");
   const [pacienteNome, setPacienteNome] = useState("");
   const [consultorioSelecionado, setConsultorioSelecionado] = useState("");
+  const [prioridade, setPrioridade] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [repetindoId, setRepetindoId] = useState<string | null>(null);
@@ -98,11 +99,13 @@ export default function PainelPage() {
         body: JSON.stringify({
           paciente: pacienteNome.trim(),
           consultorioId: consultorioSelecionado,
+          prioridade,
         }),
       });
       if (res.ok) {
         setPacienteNome("");
         setConsultorioSelecionado("");
+        setPrioridade(false);
         await carregarDados();
       } else {
         const data = await res.json().catch(() => null);
@@ -123,6 +126,7 @@ export default function PainelPage() {
         body: JSON.stringify({
           paciente: chamada.paciente,
           consultorioId: chamada.consultorioId,
+          prioridade: chamada.prioridade,
         }),
       });
       if (res.ok) {
@@ -229,6 +233,15 @@ export default function PainelPage() {
               {enviando ? "Chamando..." : "Chamar"}
             </button>
           </form>
+          <label className="mt-3 flex w-fit items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400">
+            <input
+              type="checkbox"
+              checked={prioridade}
+              onChange={(e) => setPrioridade(e.target.checked)}
+              className="h-4 w-4 accent-red-600"
+            />
+            Chamada prioritária
+          </label>
           {consultoriosLivres.length === 0 && consultorios.length > 0 && (
             <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">
               Todos os consultórios estão ocupados.
@@ -311,9 +324,18 @@ export default function PainelPage() {
               {chamadas.map((chamada) => (
                 <li
                   key={chamada.id}
-                  className="flex items-center justify-between rounded-md border border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800"
+                  className={`flex items-center justify-between rounded-md border px-4 py-2 text-sm ${
+                    chamada.prioridade
+                      ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950"
+                      : "border-zinc-200 dark:border-zinc-800"
+                  }`}
                 >
                   <span className="text-zinc-900 dark:text-zinc-50">
+                    {chamada.prioridade && (
+                      <span className="mr-2 rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
+                        Prioritário
+                      </span>
+                    )}
                     <strong>{chamada.paciente}</strong> → {chamada.consultorioNome}
                   </span>
                   <div className="flex items-center gap-3">
